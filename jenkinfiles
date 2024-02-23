@@ -1,0 +1,96 @@
+pipeline {
+    agent any
+    environment {
+        // GOOGLE_APPLICATION_CREDENTIALS = './serviceaccount_20feb.json'
+        // GCLOUD = credentials('gcloud')
+        KUBECONFIG = 'var/lib/jenkins/config'
+        // KUBECONFIG = '/home//.kube/config'
+    }
+
+    parameters {
+        choice(name: 'TERRAFORM_ACTION', choices: ['apply', 'destroy'], description: 'Select Terraform action')
+    }
+    stages {
+        stage('Checkout code') {
+            steps {
+                git branch: 'main', url: 'https://github.com/lalitmahabhoi/Azure_23thFeb'
+            }
+        }
+
+        stage('Run Terraform') {
+            when {
+                expression {
+                    return params.TERRAFORM_ACTION == 'apply'
+                }
+            }
+            steps {
+                script {
+                    sh 'terraform init'
+                    sh 'terraform plan'
+                    sh 'terraform apply --auto-approve'
+                }
+            }
+        }
+
+        stage('Destroy Terraform') {
+            when {
+                expression {
+                    return params.TERRAFORM_ACTION == 'destroy'
+                }
+            }
+            steps {
+                script {
+                    sh 'terraform destroy --auto-approve'
+                }
+            }
+        }
+
+        stage('debug') {
+            steps {
+                script {
+                    sh 'echo "$(pwd)"'
+                }
+            }
+        }
+
+        stage('Authenticate with GCP') {
+            steps {
+                script {
+                    // Authenticate with GCP
+                    sh 'gcloud auth activate-service-account --key-file=./serviceaccont_20feb.json'
+                }
+            }
+        }
+
+        stage('Update Kubeconfig') {
+            when {
+                expression {
+                    return params.TERRAFORM_ACTION == 'apply'
+                }
+            }
+            steps {
+                script {
+                    // Update kubeconfig for the GKE cluster
+                    sh "gcloud container clusters get-credentials petclinic-cluster --zone us-west4-a --project principal-rhino-413816"
+                }
+            }
+        }
+
+        stage('Deploy Petclinic') {
+            when {
+                expression {
+                    return params.TERRAFORM_ACTION == 'apply'
+                }
+            }
+            steps {
+                script {
+                    // kubernetesDeploy (configs: 'deployment.yaml','service.yaml',kubeconfigId: 'kubeconfig')
+                    sh 'kubectl apply -f deployment1.yaml'
+                    // sh 'kubectl apply -f service.yaml'
+                    sh 'kubectl expose deployment petclinic --type="LoadBalancer" --name="petclinic-service"'
+                    sh 'kubectl get svc -w'
+                }
+            }
+        }
+    }
+}
